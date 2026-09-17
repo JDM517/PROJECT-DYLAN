@@ -11,7 +11,7 @@ BLUE = "\033[94m"
 RESET = "\033[0m"
 
 TIMEOUT_LIMIT = 120.0       # Auto-terminate scan at exactly 2 minutes
-CONCURRENT_LIMIT = 1000     # Track up to 1,000 subdomains at the exact same time
+CONCURRENT_LIMIT = 1000     # Track up to 1,000 tasks at once
 
 def generate_words(choice):
     """Generates the targeted word arrays dynamically based on user profile input."""
@@ -101,47 +101,57 @@ async def main():
         print(" 2. aternos.me    (Massive Free Community Host)")
         print(" 3. falixsrv.me   (Modded & Custom Paper Host)")
         print(" 4. playit.gg     (Global Player Self-Hosted Tunnels)")
-        print(" 5. Custom Domain (Type your own entry)")
+        print(" 5. SCAN ALL      (Run all hosting networks at the exact same time)")
+        print(" 6. Custom Domain (Type your own entry)")
         print(f"{BLUE}===================================================================================================={RESET}")
         
-        net_choice = int(input("Select hosting network (1-5): "))
-        if net_choice < 1 or net_choice > 5:
+        net_choice = int(input("Select hosting network (1-6): "))
+        if net_choice < 1 or net_choice > 6:
             raise ValueError
             
+        # Build out target domain lists based on user selection maps
+        target_domains = []
         if net_choice == 1:
-            target_domain = "mcserver.us"
+            target_domains.append("mcserver.us")
         elif net_choice == 2:
-            target_domain = "aternos.me"
+            target_domains.append("aternos.me")
         elif net_choice == 3:
-            target_domain = "falixsrv.me"
+            target_domains.append("falixsrv.me")
         elif net_choice == 4:
-            target_domain = "playit.gg"
+            target_domains.append("playit.gg")
+        elif net_choice == 5:
+            # ALL TARGETS INJECTED
+            target_domains = ["mcserver.us", "aternos.me", "falixsrv.me", "playit.gg"]
         else:
             custom_domain = input("\nEnter custom target domain (e.g., ploudos.me): ").strip()
-            target_domain = custom_domain if custom_domain else "mcserver.us"
+            target_domains.append(custom_domain if custom_domain else "mcserver.us")
         
     except (ValueError, KeyboardInterrupt):
         print("\nInvalid input. Exiting.")
         return
 
     words = generate_words(choice)
-    print(f"Total entries to check: {len(words)}")
+    
+    # Calculate exact total operations (words multiplied by active targets)
+    total_checks = len(words) * len(target_domains)
+    print(f"Total entries to check across {len(target_domains)} domains: {total_checks}")
     
     start_time = time.time()
     resolver = Resolver()
     resolver.timeout = 1.0
     resolver.lifetime = 1.0
     
-    print(f"--- Scan Started targeting: {target_domain} ---")
+    print(f"--- Scan Started targeting: {', '.join(target_domains)} ---")
     with open("found_servers.txt", "a", encoding="utf-8") as f:
         semaphore = asyncio.Semaphore(CONCURRENT_LIMIT)
         
-        async def worker(sub):
+        async def worker(sub, dom):
             async with semaphore:
                 if time.time() - start_time < TIMEOUT_LIMIT:
-                    await scan_subdomain(resolver, sub, target_domain, start_time, f)
+                    await scan_subdomain(resolver, sub, dom, start_time, f)
                     
-        tasks = [worker(word) for word in words]
+        # Generate tasks looping across both words AND chosen domain clusters concurrently
+        tasks = [worker(word, domain) for word in words for domain in target_domains]
         
         for next_task in asyncio.as_completed(tasks):
             if time.time() - start_time >= TIMEOUT_LIMIT:
